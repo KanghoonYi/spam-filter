@@ -1,0 +1,21 @@
+# package directories
+node_modules
+
+# Serverless directories
+.serverless
+
+# Webpack
+.webpack
+webpack.config.js
+
+# Typescript definitions
+*.d.ts
+.gradle
+
+packages/*/lib
+packages/*/coverage
+packages/*/.*
+gradle
+packages/*/src/smithy
+build
+

@@ -2,6 +2,8 @@ import * as assert from "assert";
 import { URL } from "url";
 
 const URLPattern = /https?:\/\/\S+/g;
+const redirectStatusCodes = new Set([301, 302]);
+
 const extractURL = (text: string): Array<string> => {
   const matchResults = text.matchAll(URLPattern);
 
@@ -23,6 +25,7 @@ const isSpam = async (
   const spamDomainSet = new Set(spamLinkDomains);
   const visitHistory = new Set();
 
+  // request의 redirect를 handling하며 spam이면 해당 url을 response하는 함수.
   async function getFinalRedirectedUrl(
     url: string,
     currentDepth: number,
@@ -31,26 +34,33 @@ const isSpam = async (
     visitHistory.add(url);
 
     try {
-      const response = await fetch(url, { redirect: "follow" });
-      const redirectedUrl = response.url;
+      const response = await fetch(url, { redirect: "manual" });
 
-      if (currentDepth < redirectionDepth && response.ok) {
-        // 일반 요청인 경우
+      if (redirectStatusCodes.has(response.status)) {
+        const redirectedUrl = response.headers.get("location");
+        if (redirectedUrl) {
+          if (spamDomainSet.has(new URL(redirectedUrl).hostname)) {
+            return redirectedUrl;
+          }
+
+          return await getFinalRedirectedUrl(redirectedUrl, currentDepth + 1);
+        }
+      } else if (response.ok) {
         const body = await response.text();
-        const additionalUrls: Array<URL> = (body.match(URLPattern) || []).map(
-          (u) => new URL(u),
-        );
+        const additionalUrlInstances: Array<URL> = (
+          body.match(URLPattern) || []
+        ).map((u) => new URL(u));
 
-        if (additionalUrls.some((u) => spamDomainSet.has(u.hostname))) {
-          return redirectedUrl;
+        if (
+          additionalUrlInstances.some((urlInstance) =>
+            spamDomainSet.has(urlInstance.hostname),
+          )
+        ) {
+          return url;
         }
       }
 
-      if (spamDomainSet.has(new URL(redirectedUrl).hostname)) {
-        return redirectedUrl;
-      }
-
-      return await getFinalRedirectedUrl(redirectedUrl, currentDepth + 1);
+      return null;
     } catch (error) {
       console.error(error);
       return null;

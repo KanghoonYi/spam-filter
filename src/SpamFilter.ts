@@ -1,19 +1,5 @@
 import * as assert from "assert";
-import { Agent as HTTPAgent } from "http";
-import { Agent as HTTPSAgent } from "https";
 import { URL } from "url";
-
-import axios from "axios";
-import * as http from "node:http";
-
-const axiosInstance = axios.create({
-  httpAgent: new HTTPAgent({
-    keepAlive: true,
-  }),
-  httpsAgent: new HTTPSAgent({
-    keepAlive: true,
-  }),
-});
 
 const URLPattern = /https?:\/\/\S+/g;
 const extractURL = (text: string): Array<string> => {
@@ -34,17 +20,49 @@ const isSpam = async (
 ): Promise<boolean> => {
   const urls = extractURL(content);
 
-  await Promise.all(
-    urls.map(async (url) => {
-      const response = await axiosInstance.get(url, {
-        maxRedirects: redirectionDepth,
-      });
+  const spamDomainSet = new Set(spamLinkDomains);
+  const visitHistory = new Set();
 
-      return;
-    }),
-  );
+  async function getFinalRedirectedUrl(
+    url: string,
+    currentDepth: number,
+  ): Promise<string | null> {
+    if (currentDepth > redirectionDepth || visitHistory.has(url)) return null;
+    visitHistory.add(url);
 
-  return false;
+    try {
+      const response = await fetch(url, { redirect: "follow" });
+      const redirectedUrl = response.url;
+
+      if (currentDepth < redirectionDepth && response.ok) {
+        // 일반 요청인 경우
+        const body = await response.text();
+        const additionalUrls: Array<URL> = (body.match(URLPattern) || []).map(
+          (u) => new URL(u),
+        );
+
+        if (additionalUrls.some((u) => spamDomainSet.has(u.hostname))) {
+          return redirectedUrl;
+        }
+      }
+
+      if (spamDomainSet.has(new URL(redirectedUrl).hostname)) {
+        return redirectedUrl;
+      }
+
+      return await getFinalRedirectedUrl(redirectedUrl, currentDepth + 1);
+    } catch (error) {
+      console.error(error);
+      return null;
+    }
+  }
+
+  const promises = urls.map((url) => getFinalRedirectedUrl(url, 0));
+  const results = await Promise.all(promises);
+
+  return results.some((url) => {
+    return url !== null;
+  });
 };
 
 assert.doesNotReject(
@@ -56,35 +74,33 @@ assert.doesNotReject(
     assert.deepEqual(result, false);
   }),
 );
-//
-// assert.deepEqual(
-//   isSpam(
-//     "spam spam https://moiming.page.link.exam?_imcp=1",
-//     ["moiming.page.link"],
-//     1,
-//   ),
-//   true,
-// );
-//
-// assert.deepEqual(
-//   isSpam("spam spam https://moiming.page.link.exam?_imcp=1", ["github.com"], 2),
-//   true,
-// );
-//
-// assert.deepEqual(
-//   isSpam(
-//     "spam spam https://moiming.page.link.exam?_imcp=1",
-//     ["docs.github.com"],
-//     2,
-//   ),
-//   false,
-// );
-//
-// assert.deepEqual(
-//   isSpam(
-//     "spam spam https://moiming.page.link.exam?_imcp=1",
-//     ["docs.github.com"],
-//     3,
-//   ),
-//   true,
-// );
+
+assert.doesNotReject(
+  isSpam(
+    "spam spam https://moiming.page.link.exam?_imcp=1",
+    ["github.com"],
+    2,
+  ).then((result) => {
+    assert.deepEqual(result, true);
+  }),
+);
+
+assert.doesNotReject(
+  isSpam(
+    "spam spam https://moiming.page.link.exam?_imcp=1",
+    ["docs.github.com"],
+    2,
+  ).then((result) => {
+    assert.deepEqual(result, false);
+  }),
+);
+
+assert.doesNotReject(
+  isSpam(
+    "spam spam https://moiming.page.link.exam?_imcp=1",
+    ["docs.github.com"],
+    3,
+  ).then((result) => {
+    assert.deepEqual(result, true);
+  }),
+);

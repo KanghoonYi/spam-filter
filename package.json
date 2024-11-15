@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "testSpamFilter": "ts-node --project tsconfig.json ./src/SpamFilter.ts"
   },
   "devDependencies": {
     "@tsconfig/node20": "^20.1.4",
@@ -26,9 +26,5 @@
   },
   "author": "",
   "license": "ISC",
-  "description": "",
-  "dependencies": {
-    "axios": "^1.7.7",
-    "axios-retry": "^4.5.0"
-  }
+  "description": ""
 }
